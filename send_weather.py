@@ -3,9 +3,9 @@ import os
 from datetime import datetime
 
 # Configurações
-OPENWEATHER_API_KEY = "ae915ec4ebfc5d9944943de20a49d04c"
-WHATSAPP_PHONE = "+556299755774"
-WHATSAPP_APIKEY = "nCrtF8f4S35L"
+OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
+WHATSAPP_PHONE = os.getenv('WHATSAPP_PHONE')
+WHATSAPP_APIKEY = os.getenv('WHATSAPP_APIKEY')
 
 # Coordenadas de Goiânia, Goiás
 LATITUDE = "-15.8942"
