@@ -1,393 +1,264 @@
 import streamlit as st
 import requests
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from datetime import datetime, timedelta
-import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime
+import folium
+from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
 import warnings
+
 warnings.filterwarnings('ignore')
 
-# Função para obter localização por IP
-@st.cache_data(ttl=3600)
-def get_user_location():
-    """Obtém localização do usuário através do IP"""
-    try:
-        # Tenta com API ipapi.co (mais confiável e gratuita)
-        response = requests.get('https://ipapi.co/json/', timeout=5)
-        data = response.json()
-        
-        if 'latitude' in data and 'longitude' in data:
-            return {
-                'latitude': data['latitude'],
-                'longitude': data['longitude'],
-                'city': data.get('city', 'Desconhecido'),
-                'region': data.get('region', ''),
-                'country': data.get('country_name', ''),
-                'success': True
-            }
-    except Exception as e:
-        print(f"Erro ipapi.co: {e}")
-    
-    # Fallback para ipinfo.io
-    try:
-        response = requests.get('https://ipinfo.io/json', timeout=5)
-        data = response.json()
-        
-        if 'loc' in data:
-            lat, lon = data['loc'].split(',')
-            return {
-                'latitude': float(lat),
-                'longitude': float(lon),
-                'city': data.get('city', 'Desconhecido'),
-                'region': data.get('region', ''),
-                'country': data.get('country', ''),
-                'success': True
-            }
-    except Exception as e:
-        print(f"Erro ipinfo.io: {e}")
-    
-    # Fallback para localização padrão
-    return {
-        'latitude': -15.8942,
-        'longitude': -48.9293,
-        'city': 'Goiânia',
-        'region': 'Goiás',
-        'country': 'Brasil',
-        'success': False
-    }
-
-# Configuração da página
+# --- Configuração da Página ---
 st.set_page_config(
-    page_title="Weather Analytics",
+    page_title="Weather Pro Analytics",
     page_icon="🌦️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-st.title("🌦️ Weather Analytics Dashboard")
-st.markdown("Análise completa de temperatura e precipitação com histórico comparativo")
+# --- CSS Personalizado para Estilo Profissional ---
+st.markdown("""
+<style>
+    .metric-card {
+        background-color: #f0f2f6;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+        text-align: center;
+    }
+    .metric-label {
+        font-size: 14px;
+        color: #666;
+        margin-bottom: 5px;
+    }
+    .metric-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+    }
+    .stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# API Configuration
-OPENWEATHER_API_KEY = st.secrets.get("OPENWEATHER_API_KEY", "")
-if not OPENWEATHER_API_KEY:
-    st.error("⚠️ Configure a chave OPENWEATHER_API_KEY nos secrets do Streamlit")
-    st.stop()
+# --- Funções Auxiliares ---
 
-# Sidebar - Configurações
-st.sidebar.header("⚙️ Configurações")
+def deg_to_compass(num):
+    """Converte graus de vento para direção cardeal (N, NE, etc)"""
+    val = int((num/22.5)+.5)
+    arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+    return arr[(val % 16)]
 
-# Obter localização automática
-user_location = get_user_location()
-
-# Seleção de local
-st.sidebar.subheader("📍 Localização")
-
-if user_location['success']:
-    default_location = f"{user_location['city']}, {user_location['region']}, {user_location['country']}"
-    st.sidebar.success(f"✅ Localização detectada: {default_location}")
-else:
-    default_location = "Goiânia, Goiás, Brasil"
-    st.sidebar.info("ℹ️ Usando localização padrão (Goiânia)")
-
-location_input = st.sidebar.text_input("Buscar outra cidade:", value=default_location)
-
-try:
-    geolocator = Nominatim(user_agent="weather_app")
-    location = geolocator.geocode(location_input)
+@st.cache_data(ttl=3600)
+def get_user_location():
+    """Obtém localização aproximada pelo IP"""
+    try:
+        response = requests.get('https://ipapi.co/json/', timeout=5)
+        data = response.json()
+        if 'latitude' in data and 'longitude' in data:
+            return data
+    except:
+        pass
     
-    if location:
-        latitude = location.latitude
-        longitude = location.longitude
-        city_name = location.address.split(',')[0]
-        st.sidebar.success(f"✅ {city_name} selecionado")
-    else:
-        st.sidebar.error("Localização não encontrada")
-        latitude, longitude, city_name = user_location['latitude'], user_location['longitude'], user_location['city']
-except:
-    st.sidebar.warning("Usando localização anterior")
-    latitude, longitude, city_name = user_location['latitude'], user_location['longitude'], user_location['city']
-
-# Período de análise
-st.sidebar.subheader("📅 Período")
-days_back = st.sidebar.slider("Dias para análise histórica:", 1, 30, 7)
-
-# Tipo de gráfico
-st.sidebar.subheader("📊 Visualização")
-chart_type = st.sidebar.selectbox("Tipo de gráfico:", 
-    ["Temperatura", "Precipitação", "Comparativo", "Análise Semanal"])
-
-# Funções de API
-@st.cache_data(ttl=3600)
-def get_current_weather(lat, lon):
-    """Busca clima atual"""
-    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={OPENWEATHER_API_KEY}&units=metric&lang=pt_br"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Verifica se a resposta contém erro
-        if 'cod' in data and data['cod'] != '200' and data['cod'] != 200:
-            st.error(f"❌ Erro da API: {data.get('message', 'Erro desconhecido')}")
-            return None
-        
-        # Verifica se contém dados necessários
-        if 'main' not in data or 'weather' not in data:
-            st.error("❌ Resposta inválida da API")
-            return None
-            
-        return data
-    except requests.exceptions.HTTPError as e:
-        st.error(f"❌ Erro HTTP: {e.response.status_code}")
-        return None
-    except Exception as e:
-        st.error(f"❌ Erro ao buscar clima: {str(e)}")
-        return None
+    # Fallback
+    return {'latitude': -16.6869, 'longitude': -49.2648, 'city': 'Goiânia', 'region': 'Goiás', 'country_name': 'Brasil'}
 
 @st.cache_data(ttl=3600)
-def get_forecast_weather(lat, lon):
-    """Busca previsão de 5 dias"""
-    url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OPENWEATHER_API_KEY}&units=metric&lang=pt_br"
+def get_weather_data(lat, lon, api_key):
+    """Busca dados atuais e previsão em uma única chamada (se possível) ou separadas"""
+    base_url = "https://api.openweathermap.org/data/2.5"
+    
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        # Clima atual
+        current = requests.get(f"{base_url}/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=pt_br").json()
+        # Previsão
+        forecast = requests.get(f"{base_url}/forecast?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=pt_br").json()
         
-        # Verifica se a resposta contém erro
-        if 'cod' in data and data['cod'] != '200' and data['cod'] != 200:
-            st.error(f"❌ Erro da API: {data.get('message', 'Erro desconhecido')}")
-            return None
-        
-        # Verifica se contém dados necessários
-        if 'list' not in data:
-            st.error("❌ Resposta inválida da API")
-            return None
-            
-        return data
-    except requests.exceptions.HTTPError as e:
-        st.error(f"❌ Erro HTTP: {e.response.status_code}")
-        return None
+        return current, forecast
     except Exception as e:
-        st.error(f"❌ Erro ao buscar previsão: {str(e)}")
-        return None
+        return None, None
 
-def create_forecast_dataframe(forecast_data):
-    """Converte dados de previsão em DataFrame"""
+def process_forecast_data(forecast_data):
+    """Processa dados brutos da previsão para DataFrame limpo"""
     if not forecast_data or 'list' not in forecast_data:
-        return None
-    
+        return pd.DataFrame()
+        
     data = []
     for item in forecast_data['list']:
+        dt = pd.to_datetime(item['dt'], unit='s')
         data.append({
-            'datetime': pd.to_datetime(item['dt'], unit='s'),
-            'temp': item['main']['temp'],
-            'temp_max': item['main']['temp_max'],
-            'temp_min': item['main']['temp_min'],
-            'feels_like': item['main']['feels_like'],
-            'humidity': item['main']['humidity'],
-            'pressure': item['main']['pressure'],
-            'clouds': item['clouds']['all'],
-            'wind_speed': item['wind']['speed'],
-            'description': item['weather'][0]['description'],
-            'rain': item.get('rain', {}).get('3h', 0)
+            'Data': dt,
+            'Dia': dt.strftime('%d/%m'),
+            'Temp (°C)': item['main']['temp'],
+            'Sensação (°C)': item['main']['feels_like'],
+            'Min (°C)': item['main']['temp_min'],
+            'Max (°C)': item['main']['temp_max'],
+            'Umidade (%)': item['main']['humidity'],
+            'Vento (m/s)': item['wind']['speed'],
+            'Direção Vento': item['wind']['deg'],
+            'Descrição': item['weather'][0]['description'].title(),
+            'Chuva (mm)': item.get('rain', {}).get('3h', 0)
         })
-    
-    df = pd.DataFrame(data)
-    df['date'] = df['datetime'].dt.date
-    return df
+    return pd.DataFrame(data)
 
-# Página principal
-col1, col2, col3 = st.columns(3)
+# --- Interface Principal ---
 
-# Busca dados atuais
-current = get_current_weather(latitude, longitude)
-forecast = get_forecast_weather(latitude, longitude)
-df_forecast = create_forecast_dataframe(forecast)
+# Sidebar
+st.sidebar.title("⚙️ Configurações")
+OPENWEATHER_API_KEY = st.secrets.get("OPENWEATHER_API_KEY", "")
 
-# Validação dos dados
-if current is None:
-    st.error("❌ Não foi possível carregar os dados do clima. Verifique:")
-    st.info("""
-    - A chave OPENWEATHER_API_KEY está corretamente configurada?
-    - A localização está correta?
-    - Você tem plano ativo na OpenWeatherMap?
-    """)
+if not OPENWEATHER_API_KEY:
+    st.error("⚠️ Configure a chave OPENWEATHER_API_KEY nos secrets.")
     st.stop()
 
-if current:
+# Localização
+user_loc = get_user_location()
+default_city = f"{user_loc.get('city')}, {user_loc.get('region')}"
+city_input = st.sidebar.text_input("📍 Buscar Localização:", value=default_city)
+
+try:
+    geolocator = Nominatim(user_agent="weather_pro_app")
+    location = geolocator.geocode(city_input)
+    
+    if location:
+        lat, lon = location.latitude, location.longitude
+        display_name = location.address.split(',')[0]
+        st.sidebar.success(f"✅ {display_name}")
+    else:
+        st.sidebar.error("Local não encontrado. Usando padrão.")
+        lat, lon = user_loc['latitude'], user_loc['longitude']
+        display_name = user_loc.get('city')
+except:
+    lat, lon = user_loc['latitude'], user_loc['longitude']
+    display_name = user_loc.get('city')
+
+# --- Corpo Principal ---
+
+st.title(f"🌦️ Weather Analytics: {display_name}")
+st.markdown(f"Dashboard profissional de monitoramento climático para **{display_name}**.")
+
+# Buscar Dados
+current, forecast_raw = get_weather_data(lat, lon, OPENWEATHER_API_KEY)
+
+if current and current.get('cod') == 200:
+    # 1. Cartões de Métricas (Top Row)
+    col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
-        st.metric("🌡️ Temperatura Atual", f"{current['main']['temp']:.1f}°C", 
-                  f"Sensação: {current['main']['feels_like']:.1f}°C")
-    
+        st.metric("Temperatura", f"{current['main']['temp']:.1f}°C", f"Min: {current['main']['temp_min']:.1f}°C")
     with col2:
-        st.metric("💧 Umidade", f"{current['main']['humidity']}%")
-    
+        wind_dir = deg_to_compass(current['wind']['deg'])
+        st.metric("Vento", f"{current['wind']['speed']} m/s", f"Direção: {wind_dir}")
     with col3:
-        st.metric("💨 Vento", f"{current['wind']['speed']:.1f} m/s")
+        st.metric("Umidade", f"{current['main']['humidity']}%", f"Pressão: {current['main']['pressure']} hPa")
+    with col4:
+        vis = current.get('visibility', 0) / 1000
+        st.metric("Visibilidade", f"{vis:.1f} km", f"Nuvens: {current['clouds']['all']}%")
 
-# Dados gerais
-if current:
-    st.markdown(f"### 📍 {city_name}")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.info(f"""
-        **Clima Atual:**
-        - Descrição: {current['weather'][0]['description'].capitalize()}
-        - Máxima: {current['main']['temp_max']:.1f}°C
-        - Mínima: {current['main']['temp_min']:.1f}°C
-        - Pressão: {current['main']['pressure']} hPa
-        """)
-    
-    with col2:
-        sunrise = datetime.fromtimestamp(current['sys']['sunrise'])
-        sunset = datetime.fromtimestamp(current['sys']['sunset'])
-        st.info(f"""
-        **Sol e Lua:**
-        - Nascer: {sunrise.strftime('%H:%M')}
-        - Pôr: {sunset.strftime('%H:%M')}
-        - Visibilidade: {current.get('visibility', 0)/1000:.1f} km
-        - Cobertura: {current['clouds']['all']}%
-        """)
+    st.markdown("---")
 
-# Gráficos
+    # 2. Abas para Análise
+    tab1, tab2, tab3 = st.tabs(["🗺️ Visão Geral & Mapa", "📈 Previsão Detalhada", "📋 Dados Brutos"])
+
+    df = process_forecast_data(forecast_raw)
+
+    with tab1:
+        c1, c2 = st.columns([1, 1])
+        
+        with c1:
+            st.subheader("Localização Atual")
+            # Mapa com Folium
+            m = folium.Map(location=[lat, lon], zoom_start=10)
+            folium.Marker(
+                [lat, lon], 
+                popup=f"<b>{display_name}</b><br>{current['weather'][0]['description'].title()}", 
+                icon=folium.Icon(color="blue", icon="cloud")
+            ).add_to(m)
+            st_folium(m, height=350, use_container_width=True)
+            
+        with c2:
+            st.subheader("Resumo Próximas 24h")
+            if not df.empty:
+                # Pegar apenas as próximas 8 entradas (24h, já que são intervalos de 3h)
+                df_24h = df.head(8)
+                fig_24h = px.line(df_24h, x='Data', y='Temp (°C)', markers=True, 
+                                  title="Tendência de Temperatura (24h)", template="plotly_white")
+                fig_24h.update_traces(line_color='#FF6B6B', line_width=3)
+                st.plotly_chart(fig_24h, use_container_width=True)
+
+    with tab2:
+        st.subheader("Análise de Previsão (5 Dias)")
+        
+        if not df.empty:
+            # Gráfico Combinado: Linha (Temp) e Barra (Chuva)
+            fig = go.Figure()
+            
+            # Adicionar barras de chuva
+            fig.add_trace(go.Bar(
+                x=df['Data'], 
+                y=df['Chuva (mm)'],
+                name='Chuva (mm)',
+                marker_color='#4A90E2',
+                opacity=0.6,
+                yaxis='y2'
+            ))
+
+            # Adicionar linha de temperatura
+            fig.add_trace(go.Scatter(
+                x=df['Data'], 
+                y=df['Temp (°C)'],
+                name='Temperatura (°C)',
+                mode='lines+markers',
+                line=dict(color='#FF6B6B', width=2)
+            ))
+
+            # Layout com dois eixos Y
+            fig.update_layout(
+                title="Temperatura vs Precipitação",
+                yaxis=dict(title="Temperatura (°C)", side="left"),
+                yaxis2=dict(title="Chuva (mm)", side="right", overlaying="y", showgrid=False),
+                template="plotly_white",
+                hovermode="x unified",
+                legend=dict(orientation="h", y=1.1)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Gráfico de Vento e Umidade
+            col_a, col_b = st.columns(2)
+            with col_a:
+                fig_hum = px.area(df, x='Data', y='Umidade (%)', title="Variação da Umidade",
+                                  color_discrete_sequence=['#2ecc71'])
+                st.plotly_chart(fig_hum, use_container_width=True)
+            
+            with col_b:
+                fig_wind = px.line(df, x='Data', y='Vento (m/s)', title="Velocidade do Vento",
+                                   color_discrete_sequence=['#9b59b6'])
+                st.plotly_chart(fig_wind, use_container_width=True)
+
+    with tab3:
+        st.subheader("Base de Dados Completa")
+        st.dataframe(df, use_container_width=True)
+        
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "📥 Baixar CSV",
+            csv,
+            "weather_analytics_pro.csv",
+            "text/csv",
+            key='download-csv'
+        )
+
+else:
+    st.error("Erro ao carregar dados. Verifique a localização ou a API Key.")
+    
+# Footer
 st.markdown("---")
-st.markdown("## 📊 Análises Gráficas")
-
-if df_forecast is not None:
-    if chart_type == "Temperatura":
-        st.subheader("📈 Evolução de Temperatura (5 dias)")
-        
-        fig, ax = plt.subplots(figsize=(14, 6))
-        ax.plot(df_forecast['datetime'], df_forecast['temp'], 'o-', 
-                label='Temperatura', color='#FF6B6B', linewidth=2, markersize=6)
-        ax.fill_between(df_forecast['datetime'], df_forecast['temp_min'], 
-                         df_forecast['temp_max'], alpha=0.2, color='#FF6B6B')
-        ax.set_xlabel('Data/Hora', fontsize=12)
-        ax.set_ylabel('Temperatura (°C)', fontsize=12)
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=11)
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        st.pyplot(fig)
-        
-        # Estatísticas
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Temp Máxima", f"{df_forecast['temp_max'].max():.1f}°C")
-        col2.metric("Temp Mínima", f"{df_forecast['temp_min'].min():.1f}°C")
-        col3.metric("Temp Média", f"{df_forecast['temp'].mean():.1f}°C")
-        col4.metric("Variação", f"{df_forecast['temp_max'].max() - df_forecast['temp_min'].min():.1f}°C")
-    
-    elif chart_type == "Precipitação":
-        st.subheader("🌧️ Previsão de Chuva (5 dias)")
-        
-        fig, ax = plt.subplots(figsize=(14, 6))
-        ax.bar(df_forecast['datetime'], df_forecast['rain'], 
-               color='#4A90E2', alpha=0.7, width=0.08)
-        ax.set_xlabel('Data/Hora', fontsize=12)
-        ax.set_ylabel('Chuva (mm/3h)', fontsize=12)
-        ax.grid(True, alpha=0.3, axis='y')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        st.pyplot(fig)
-        
-        # Estatísticas
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Chuva Máxima", f"{df_forecast['rain'].max():.1f} mm")
-        col2.metric("Chuva Total", f"{df_forecast['rain'].sum():.1f} mm")
-        col3.metric("Dias com Chuva", len(df_forecast[df_forecast['rain'] > 0]))
-    
-    elif chart_type == "Comparativo":
-        st.subheader("📊 Gráfico Comparativo: Temperatura vs Chuva")
-        
-        fig, ax1 = plt.subplots(figsize=(14, 6))
-        
-        ax1.plot(df_forecast['datetime'], df_forecast['temp'], 'o-', 
-                color='#FF6B6B', label='Temperatura', linewidth=2, markersize=6)
-        ax1.set_ylabel('Temperatura (°C)', fontsize=12, color='#FF6B6B')
-        ax1.tick_params(axis='y', labelcolor='#FF6B6B')
-        ax1.grid(True, alpha=0.3)
-        
-        ax2 = ax1.twinx()
-        ax2.bar(df_forecast['datetime'], df_forecast['rain'], 
-               alpha=0.3, color='#4A90E2', label='Precipitação', width=0.08)
-        ax2.set_ylabel('Chuva (mm/3h)', fontsize=12, color='#4A90E2')
-        ax2.tick_params(axis='y', labelcolor='#4A90E2')
-        
-        ax1.set_xlabel('Data/Hora', fontsize=12)
-        lines1, labels1 = ax1.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left', fontsize=11)
-        
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        st.pyplot(fig)
-    
-    elif chart_type == "Análise Semanal":
-        st.subheader("📅 Análise Semanal")
-        
-        # Agrupa por dia
-        df_daily = df_forecast.groupby('date').agg({
-            'temp': 'mean',
-            'temp_max': 'max',
-            'temp_min': 'min',
-            'rain': 'sum',
-            'humidity': 'mean',
-            'wind_speed': 'mean'
-        }).reset_index()
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("### 🌡️ Temperatura Diária")
-            fig, ax = plt.subplots(figsize=(10, 5))
-            ax.bar(range(len(df_daily)), df_daily['temp'], alpha=0.7, color='#FF6B6B', label='Média')
-            ax.plot(range(len(df_daily)), df_daily['temp_max'], 'ro-', label='Máxima', linewidth=2)
-            ax.plot(range(len(df_daily)), df_daily['temp_min'], 'bs-', label='Mínima', linewidth=2)
-            ax.set_xticks(range(len(df_daily)))
-            ax.set_xticklabels([d.strftime('%d/%m') for d in df_daily['date']], rotation=45)
-            ax.set_ylabel('Temperatura (°C)', fontsize=11)
-            ax.legend()
-            ax.grid(True, alpha=0.3, axis='y')
-            plt.tight_layout()
-            st.pyplot(fig)
-        
-        with col2:
-            st.markdown("### 🌧️ Chuva Acumulada")
-            fig, ax = plt.subplots(figsize=(10, 5))
-            ax.bar(range(len(df_daily)), df_daily['rain'], alpha=0.7, color='#4A90E2')
-            ax.set_xticks(range(len(df_daily)))
-            ax.set_xticklabels([d.strftime('%d/%m') for d in df_daily['date']], rotation=45)
-            ax.set_ylabel('Chuva (mm)', fontsize=11)
-            ax.grid(True, alpha=0.3, axis='y')
-            plt.tight_layout()
-            st.pyplot(fig)
-        
-        # Tabela semanal
-        st.markdown("### 📋 Resumo Semanal")
-        df_display = df_daily.copy()
-        df_display['date'] = df_display['date'].astype(str)
-        df_display.columns = ['Data', 'Temp Média (°C)', 'Temp Máx (°C)', 
-                              'Temp Mín (°C)', 'Chuva (mm)', 'Umidade (%)', 'Vento (m/s)']
-        st.dataframe(df_display.round(1), use_container_width=True)
-
-# Dados brutos
-st.markdown("---")
-st.subheader("📊 Dados Brutos da Previsão")
-
-if df_forecast is not None:
-    df_display = df_forecast[['datetime', 'temp', 'temp_max', 'temp_min', 
-                               'humidity', 'wind_speed', 'rain', 'description']].copy()
-    df_display.columns = ['Data/Hora', 'Temp (°C)', 'Máx (°C)', 'Mín (°C)', 
-                          'Umidade (%)', 'Vento (m/s)', 'Chuva (mm)', 'Descrição']
-    
-    st.dataframe(df_display.round(1), use_container_width=True)
-    
-    # Download
-    csv = df_display.to_csv(index=False, encoding='utf-8-sig')
-    st.download_button("📥 Baixar dados em CSV", csv, "weather_data.csv", "text/csv")
-
-st.markdown("---")
-st.markdown("🌍 Weather Analytics Dashboard | Atualizado em: " + datetime.now().strftime('%d/%m/%Y %H:%M'))
+st.markdown("Desenvolvido com Streamlit, Plotly e OpenWeatherMap")
