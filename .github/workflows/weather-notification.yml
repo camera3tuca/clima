@@ -1,0 +1,32 @@
+name: Daily Weather WhatsApp Notification
+
+on:
+  schedule:
+    # Executa todo dia às 7:00 AM (horário de Brasília - GMT-3)
+    # GitHub Actions usa UTC, então 7:00 AM Brasília = 10:00 AM UTC
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+
+jobs:
+  send-weather:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests
+      
+      - name: Get Weather and Send WhatsApp
+        run: |
+          python send_weather.py
+
+      - name: Log execution
+        run: echo "Weather notification sent successfully!"
