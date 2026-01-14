@@ -27,8 +27,8 @@ def get_user_location():
                 'country': data.get('country_name', ''),
                 'success': True
             }
-    except:
-        pass
+    except Exception as e:
+        print(f"Erro ipapi.co: {e}")
     
     # Fallback para ipinfo.io
     try:
@@ -45,8 +45,8 @@ def get_user_location():
                 'country': data.get('country', ''),
                 'success': True
             }
-    except:
-        pass
+    except Exception as e:
+        print(f"Erro ipinfo.io: {e}")
     
     # Fallback para localização padrão
     return {
@@ -125,8 +125,25 @@ def get_current_weather(lat, lon):
     url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={OPENWEATHER_API_KEY}&units=metric&lang=pt_br"
     try:
         response = requests.get(url, timeout=10)
-        return response.json()
-    except:
+        response.raise_for_status()
+        data = response.json()
+        
+        # Verifica se a resposta contém erro
+        if 'cod' in data and data['cod'] != '200' and data['cod'] != 200:
+            st.error(f"❌ Erro da API: {data.get('message', 'Erro desconhecido')}")
+            return None
+        
+        # Verifica se contém dados necessários
+        if 'main' not in data or 'weather' not in data:
+            st.error("❌ Resposta inválida da API")
+            return None
+            
+        return data
+    except requests.exceptions.HTTPError as e:
+        st.error(f"❌ Erro HTTP: {e.response.status_code}")
+        return None
+    except Exception as e:
+        st.error(f"❌ Erro ao buscar clima: {str(e)}")
         return None
 
 @st.cache_data(ttl=3600)
@@ -135,8 +152,25 @@ def get_forecast_weather(lat, lon):
     url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OPENWEATHER_API_KEY}&units=metric&lang=pt_br"
     try:
         response = requests.get(url, timeout=10)
-        return response.json()
-    except:
+        response.raise_for_status()
+        data = response.json()
+        
+        # Verifica se a resposta contém erro
+        if 'cod' in data and data['cod'] != '200' and data['cod'] != 200:
+            st.error(f"❌ Erro da API: {data.get('message', 'Erro desconhecido')}")
+            return None
+        
+        # Verifica se contém dados necessários
+        if 'list' not in data:
+            st.error("❌ Resposta inválida da API")
+            return None
+            
+        return data
+    except requests.exceptions.HTTPError as e:
+        st.error(f"❌ Erro HTTP: {e.response.status_code}")
+        return None
+    except Exception as e:
+        st.error(f"❌ Erro ao buscar previsão: {str(e)}")
         return None
 
 def create_forecast_dataframe(forecast_data):
@@ -171,6 +205,16 @@ col1, col2, col3 = st.columns(3)
 current = get_current_weather(latitude, longitude)
 forecast = get_forecast_weather(latitude, longitude)
 df_forecast = create_forecast_dataframe(forecast)
+
+# Validação dos dados
+if current is None:
+    st.error("❌ Não foi possível carregar os dados do clima. Verifique:")
+    st.info("""
+    - A chave OPENWEATHER_API_KEY está corretamente configurada?
+    - A localização está correta?
+    - Você tem plano ativo na OpenWeatherMap?
+    """)
+    st.stop()
 
 if current:
     with col1:
