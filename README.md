@@ -62,10 +62,18 @@ pip install -r requirements.txt
 
 ### 4. Configure a chave de API
 
-Crie um arquivo `.streamlit/secrets.toml`:
+**IMPORTANTE:** Nunca faça commit de secrets no Git!
+
+Crie um arquivo `.streamlit/secrets.toml` **apenas localmente**:
 
 ```toml
 OPENWEATHER_API_KEY = "sua_chave_aqui"
+```
+
+Adicione na `.gitignore`:
+
+```
+.streamlit/secrets.toml
 ```
 
 ### 5. Execute a aplicação
