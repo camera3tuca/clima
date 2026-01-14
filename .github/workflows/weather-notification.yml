@@ -25,6 +25,10 @@ jobs:
           pip install requests
       
       - name: Get Weather and Send WhatsApp
+        env:
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+          WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
+          WHATSAPP_APIKEY: ${{ secrets.WHATSAPP_APIKEY }}
         run: |
           python send_weather.py
 
