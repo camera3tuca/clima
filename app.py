@@ -9,55 +9,6 @@ from geopy.geocoders import Nominatim
 import warnings
 warnings.filterwarnings('ignore')
 
-# Função para obter localização por IP
-@st.cache_data(ttl=3600)
-def get_user_location():
-    """Obtém localização do usuário através do IP"""
-    try:
-        # Tenta com API ipapi.co (mais confiável e gratuita)
-        response = requests.get('https://ipapi.co/json/', timeout=5)
-        data = response.json()
-        
-        if 'latitude' in data and 'longitude' in data:
-            return {
-                'latitude': data['latitude'],
-                'longitude': data['longitude'],
-                'city': data.get('city', 'Desconhecido'),
-                'region': data.get('region', ''),
-                'country': data.get('country_name', ''),
-                'success': True
-            }
-    except Exception as e:
-        print(f"Erro ipapi.co: {e}")
-    
-    # Fallback para ipinfo.io
-    try:
-        response = requests.get('https://ipinfo.io/json', timeout=5)
-        data = response.json()
-        
-        if 'loc' in data:
-            lat, lon = data['loc'].split(',')
-            return {
-                'latitude': float(lat),
-                'longitude': float(lon),
-                'city': data.get('city', 'Desconhecido'),
-                'region': data.get('region', ''),
-                'country': data.get('country', ''),
-                'success': True
-            }
-    except Exception as e:
-        print(f"Erro ipinfo.io: {e}")
-    
-    # Fallback para localização padrão
-    return {
-        'latitude': -15.8942,
-        'longitude': -48.9293,
-        'city': 'Goiânia',
-        'region': 'Goiás',
-        'country': 'Brasil',
-        'success': False
-    }
-
 # Configuração da página
 st.set_page_config(
     page_title="Weather Analytics",
@@ -78,20 +29,9 @@ if not OPENWEATHER_API_KEY:
 # Sidebar - Configurações
 st.sidebar.header("⚙️ Configurações")
 
-# Obter localização automática
-user_location = get_user_location()
-
 # Seleção de local
 st.sidebar.subheader("📍 Localização")
-
-if user_location['success']:
-    default_location = f"{user_location['city']}, {user_location['region']}, {user_location['country']}"
-    st.sidebar.success(f"✅ Localização detectada: {default_location}")
-else:
-    default_location = "Goiânia, Goiás, Brasil"
-    st.sidebar.info("ℹ️ Usando localização padrão (Goiânia)")
-
-location_input = st.sidebar.text_input("Buscar outra cidade:", value=default_location)
+location_input = st.sidebar.text_input("Buscar cidade:", value="Goiânia, Goiás")
 
 try:
     geolocator = Nominatim(user_agent="weather_app")
@@ -104,10 +44,10 @@ try:
         st.sidebar.success(f"✅ {city_name} selecionado")
     else:
         st.sidebar.error("Localização não encontrada")
-        latitude, longitude, city_name = user_location['latitude'], user_location['longitude'], user_location['city']
+        latitude, longitude, city_name = -15.8942, -48.9293, "Goiânia"
 except:
-    st.sidebar.warning("Usando localização anterior")
-    latitude, longitude, city_name = user_location['latitude'], user_location['longitude'], user_location['city']
+    st.sidebar.warning("Usando localização padrão: Goiânia")
+    latitude, longitude, city_name = -15.8942, -48.9293, "Goiânia"
 
 # Período de análise
 st.sidebar.subheader("📅 Período")
@@ -125,25 +65,8 @@ def get_current_weather(lat, lon):
     url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={OPENWEATHER_API_KEY}&units=metric&lang=pt_br"
     try:
         response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Verifica se a resposta contém erro
-        if 'cod' in data and data['cod'] != '200' and data['cod'] != 200:
-            st.error(f"❌ Erro da API: {data.get('message', 'Erro desconhecido')}")
-            return None
-        
-        # Verifica se contém dados necessários
-        if 'main' not in data or 'weather' not in data:
-            st.error("❌ Resposta inválida da API")
-            return None
-            
-        return data
-    except requests.exceptions.HTTPError as e:
-        st.error(f"❌ Erro HTTP: {e.response.status_code}")
-        return None
-    except Exception as e:
-        st.error(f"❌ Erro ao buscar clima: {str(e)}")
+        return response.json()
+    except:
         return None
 
 @st.cache_data(ttl=3600)
@@ -152,25 +75,8 @@ def get_forecast_weather(lat, lon):
     url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={OPENWEATHER_API_KEY}&units=metric&lang=pt_br"
     try:
         response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Verifica se a resposta contém erro
-        if 'cod' in data and data['cod'] != '200' and data['cod'] != 200:
-            st.error(f"❌ Erro da API: {data.get('message', 'Erro desconhecido')}")
-            return None
-        
-        # Verifica se contém dados necessários
-        if 'list' not in data:
-            st.error("❌ Resposta inválida da API")
-            return None
-            
-        return data
-    except requests.exceptions.HTTPError as e:
-        st.error(f"❌ Erro HTTP: {e.response.status_code}")
-        return None
-    except Exception as e:
-        st.error(f"❌ Erro ao buscar previsão: {str(e)}")
+        return response.json()
+    except:
         return None
 
 def create_forecast_dataframe(forecast_data):
@@ -205,16 +111,6 @@ col1, col2, col3 = st.columns(3)
 current = get_current_weather(latitude, longitude)
 forecast = get_forecast_weather(latitude, longitude)
 df_forecast = create_forecast_dataframe(forecast)
-
-# Validação dos dados
-if current is None:
-    st.error("❌ Não foi possível carregar os dados do clima. Verifique:")
-    st.info("""
-    - A chave OPENWEATHER_API_KEY está corretamente configurada?
-    - A localização está correta?
-    - Você tem plano ativo na OpenWeatherMap?
-    """)
-    st.stop()
 
 if current:
     with col1:
