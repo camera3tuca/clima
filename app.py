@@ -13,37 +13,43 @@ warnings.filterwarnings('ignore')
 
 # --- Configuração da Página ---
 st.set_page_config(
-    page_title="Weather Pro Analytics",
+    page_title="Weather Pro",
     page_icon="🌦️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- CSS Personalizado para Estilo Profissional ---
+# --- CSS Inteligente (Adapta ao Modo Escuro/Claro) ---
 st.markdown("""
 <style>
-    .metric-card {
-        background-color: #f0f2f6;
+    /* Ajusta o fundo dos cartões para usar a cor secundária do tema atual */
+    .metric-card-container {
+        background-color: var(--secondary-background-color);
+        border: 1px solid var(--secondary-background-color);
         border-radius: 10px;
         padding: 20px;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         text-align: center;
+        color: var(--text-color);
+        height: 100%;
     }
-    .metric-label {
-        font-size: 14px;
-        color: #666;
-        margin-bottom: 5px;
+    
+    /* Remove padding excessivo do topo */
+    .block-container {
+        padding-top: 2rem;
     }
-    .metric-value {
-        font-size: 24px;
-        font-weight: bold;
-        color: #333;
+    
+    /* Melhora a visualização das abas */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
     }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        border-radius: 4px 4px 0 0;
+        gap: 1px;
+        padding-top: 10px;
+        padding-bottom: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -51,7 +57,7 @@ st.markdown("""
 # --- Funções Auxiliares ---
 
 def deg_to_compass(num):
-    """Converte graus de vento para direção cardeal (N, NE, etc)"""
+    """Converte graus de vento para direção cardeal"""
     val = int((num/22.5)+.5)
     arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
     return arr[(val % 16)]
@@ -66,27 +72,21 @@ def get_user_location():
             return data
     except:
         pass
-    
-    # Fallback
     return {'latitude': -16.6869, 'longitude': -49.2648, 'city': 'Goiânia', 'region': 'Goiás', 'country_name': 'Brasil'}
 
 @st.cache_data(ttl=3600)
 def get_weather_data(lat, lon, api_key):
-    """Busca dados atuais e previsão em uma única chamada (se possível) ou separadas"""
+    """Busca dados da API"""
     base_url = "https://api.openweathermap.org/data/2.5"
-    
     try:
-        # Clima atual
         current = requests.get(f"{base_url}/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=pt_br").json()
-        # Previsão
         forecast = requests.get(f"{base_url}/forecast?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=pt_br").json()
-        
         return current, forecast
-    except Exception as e:
+    except:
         return None, None
 
 def process_forecast_data(forecast_data):
-    """Processa dados brutos da previsão para DataFrame limpo"""
+    """Processa DataFrame"""
     if not forecast_data or 'list' not in forecast_data:
         return pd.DataFrame()
         
@@ -97,16 +97,23 @@ def process_forecast_data(forecast_data):
             'Data': dt,
             'Dia': dt.strftime('%d/%m'),
             'Temp (°C)': item['main']['temp'],
-            'Sensação (°C)': item['main']['feels_like'],
             'Min (°C)': item['main']['temp_min'],
             'Max (°C)': item['main']['temp_max'],
             'Umidade (%)': item['main']['humidity'],
             'Vento (m/s)': item['wind']['speed'],
-            'Direção Vento': item['wind']['deg'],
-            'Descrição': item['weather'][0]['description'].title(),
             'Chuva (mm)': item.get('rain', {}).get('3h', 0)
         })
     return pd.DataFrame(data)
+
+def card_metric(label, value, sub_value):
+    """Cria um cartão HTML personalizado"""
+    st.markdown(f"""
+    <div class="metric-card-container">
+        <div style="font-size: 0.9rem; margin-bottom: 5px; opacity: 0.8;">{label}</div>
+        <div style="font-size: 1.8rem; font-weight: bold;">{value}</div>
+        <div style="font-size: 0.8rem; margin-top: 5px; opacity: 0.8; color: #2ecc71;">{sub_value}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # --- Interface Principal ---
 
@@ -118,147 +125,108 @@ if not OPENWEATHER_API_KEY:
     st.error("⚠️ Configure a chave OPENWEATHER_API_KEY nos secrets.")
     st.stop()
 
-# Localização
 user_loc = get_user_location()
 default_city = f"{user_loc.get('city')}, {user_loc.get('region')}"
-city_input = st.sidebar.text_input("📍 Buscar Localização:", value=default_city)
+city_input = st.sidebar.text_input("📍 Cidade:", value=default_city)
 
 try:
     geolocator = Nominatim(user_agent="weather_pro_app")
     location = geolocator.geocode(city_input)
-    
     if location:
         lat, lon = location.latitude, location.longitude
         display_name = location.address.split(',')[0]
         st.sidebar.success(f"✅ {display_name}")
     else:
-        st.sidebar.error("Local não encontrado. Usando padrão.")
+        st.sidebar.warning("Usando padrão")
         lat, lon = user_loc['latitude'], user_loc['longitude']
         display_name = user_loc.get('city')
 except:
     lat, lon = user_loc['latitude'], user_loc['longitude']
     display_name = user_loc.get('city')
 
-# --- Corpo Principal ---
+# Corpo Principal
+st.title(f"🌦️ {display_name}")
 
-st.title(f"🌦️ Weather Analytics: {display_name}")
-st.markdown(f"Dashboard profissional de monitoramento climático para **{display_name}**.")
-
-# Buscar Dados
 current, forecast_raw = get_weather_data(lat, lon, OPENWEATHER_API_KEY)
 
 if current and current.get('cod') == 200:
-    # 1. Cartões de Métricas (Top Row)
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Temperatura", f"{current['main']['temp']:.1f}°C", f"Min: {current['main']['temp_min']:.1f}°C")
-    with col2:
+    # Métricas Superiores (Custom Cards)
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        card_metric("Temperatura", f"{current['main']['temp']:.1f}°C", f"Sensação: {current['main']['feels_like']:.0f}°C")
+    with c2:
         wind_dir = deg_to_compass(current['wind']['deg'])
-        st.metric("Vento", f"{current['wind']['speed']} m/s", f"Direção: {wind_dir}")
-    with col3:
-        st.metric("Umidade", f"{current['main']['humidity']}%", f"Pressão: {current['main']['pressure']} hPa")
-    with col4:
+        card_metric("Vento", f"{current['wind']['speed']} m/s", f"Direção: {wind_dir}")
+    with c3:
+        card_metric("Umidade", f"{current['main']['humidity']}%", f"Pressão: {current['main']['pressure']}hPa")
+    with c4:
         vis = current.get('visibility', 0) / 1000
-        st.metric("Visibilidade", f"{vis:.1f} km", f"Nuvens: {current['clouds']['all']}%")
+        card_metric("Visibilidade", f"{vis:.1f} km", f"Nuvens: {current['clouds']['all']}%")
 
     st.markdown("---")
 
-    # 2. Abas para Análise
-    tab1, tab2, tab3 = st.tabs(["🗺️ Visão Geral & Mapa", "📈 Previsão Detalhada", "📋 Dados Brutos"])
+    # Abas
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Mapa", "📋 Dados"])
 
     df = process_forecast_data(forecast_raw)
 
     with tab1:
-        c1, c2 = st.columns([1, 1])
+        col_left, col_right = st.columns([1, 1])
         
-        with c1:
-            st.subheader("Localização Atual")
-            # Mapa com Folium
-            m = folium.Map(location=[lat, lon], zoom_start=10)
-            folium.Marker(
-                [lat, lon], 
-                popup=f"<b>{display_name}</b><br>{current['weather'][0]['description'].title()}", 
-                icon=folium.Icon(color="blue", icon="cloud")
-            ).add_to(m)
-            st_folium(m, height=350, use_container_width=True)
-            
-        with c2:
-            st.subheader("Resumo Próximas 24h")
+        with col_left:
+            st.subheader("🌡️ Temperatura (24h)")
             if not df.empty:
-                # Pegar apenas as próximas 8 entradas (24h, já que são intervalos de 3h)
                 df_24h = df.head(8)
-                fig_24h = px.line(df_24h, x='Data', y='Temp (°C)', markers=True, 
-                                  title="Tendência de Temperatura (24h)", template="plotly_white")
-                fig_24h.update_traces(line_color='#FF6B6B', line_width=3)
-                st.plotly_chart(fig_24h, use_container_width=True)
+                fig_temp = px.line(df_24h, x='Data', y='Temp (°C)', markers=True, template="plotly_white")
+                fig_temp.update_traces(line_color='#FF6B6B', line_width=3)
+                fig_temp.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=300)
+                # Correção do aviso de log: width="stretch" (se suportado) ou nativo
+                st.plotly_chart(fig_temp, use_container_width=True) 
+
+        with col_right:
+            st.subheader("🌧️ Chuva e Umidade")
+            if not df.empty:
+                fig_mix = go.Figure()
+                fig_mix.add_trace(go.Bar(x=df.head(8)['Data'], y=df.head(8)['Chuva (mm)'], name='Chuva', marker_color='#4A90E2'))
+                fig_mix.add_trace(go.Scatter(x=df.head(8)['Data'], y=df.head(8)['Umidade (%)'], name='Umidade', yaxis='y2', line=dict(color='#2ecc71')))
+                
+                fig_mix.update_layout(
+                    margin=dict(l=20, r=20, t=30, b=20),
+                    height=300,
+                    yaxis2=dict(overlaying='y', side='right', showgrid=False),
+                    template="plotly_white",
+                    legend=dict(orientation="h", y=1.1)
+                )
+                st.plotly_chart(fig_mix, use_container_width=True)
 
     with tab2:
-        st.subheader("Análise de Previsão (5 Dias)")
+        st.subheader("📍 Geolocalização")
+        # Mapa ajustado
+        m = folium.Map(location=[lat, lon], zoom_start=11, tiles="CartoDB positron")
+        folium.Marker(
+            [lat, lon], 
+            popup=f"<b>{display_name}</b>", 
+            icon=folium.Icon(color="red", icon="info-sign")
+        ).add_to(m)
         
-        if not df.empty:
-            # Gráfico Combinado: Linha (Temp) e Barra (Chuva)
-            fig = go.Figure()
-            
-            # Adicionar barras de chuva
-            fig.add_trace(go.Bar(
-                x=df['Data'], 
-                y=df['Chuva (mm)'],
-                name='Chuva (mm)',
-                marker_color='#4A90E2',
-                opacity=0.6,
-                yaxis='y2'
-            ))
-
-            # Adicionar linha de temperatura
-            fig.add_trace(go.Scatter(
-                x=df['Data'], 
-                y=df['Temp (°C)'],
-                name='Temperatura (°C)',
-                mode='lines+markers',
-                line=dict(color='#FF6B6B', width=2)
-            ))
-
-            # Layout com dois eixos Y
-            fig.update_layout(
-                title="Temperatura vs Precipitação",
-                yaxis=dict(title="Temperatura (°C)", side="left"),
-                yaxis2=dict(title="Chuva (mm)", side="right", overlaying="y", showgrid=False),
-                template="plotly_white",
-                hovermode="x unified",
-                legend=dict(orientation="h", y=1.1)
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Gráfico de Vento e Umidade
-            col_a, col_b = st.columns(2)
-            with col_a:
-                fig_hum = px.area(df, x='Data', y='Umidade (%)', title="Variação da Umidade",
-                                  color_discrete_sequence=['#2ecc71'])
-                st.plotly_chart(fig_hum, use_container_width=True)
-            
-            with col_b:
-                fig_wind = px.line(df, x='Data', y='Vento (m/s)', title="Velocidade do Vento",
-                                   color_discrete_sequence=['#9b59b6'])
-                st.plotly_chart(fig_wind, use_container_width=True)
+        # Ajuste de layout para o mapa não ficar comprimido
+        st_folium(m, height=400, use_container_width=True)
 
     with tab3:
-        st.subheader("Base de Dados Completa")
-        st.dataframe(df, use_container_width=True)
-        
+        st.subheader("Base de Dados (5 Dias)")
+        # Correção do aviso: width="stretch" para dataframe (nova sintaxe Streamlit)
+        try:
+            st.dataframe(df, use_container_width=True) 
+        except:
+             # Fallback caso a versão do streamlit não aceite o novo parametro ainda
+            st.dataframe(df)
+            
         csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            "📥 Baixar CSV",
-            csv,
-            "weather_analytics_pro.csv",
-            "text/csv",
-            key='download-csv'
-        )
+        st.download_button("📥 Baixar CSV", csv, "weather_data.csv", "text/csv")
 
 else:
-    st.error("Erro ao carregar dados. Verifique a localização ou a API Key.")
-    
-# Footer
+    st.error("Não foi possível carregar os dados. Verifique a API Key.")
+
+# Footer Minimalista
 st.markdown("---")
-st.markdown("Desenvolvido com Streamlit, Plotly e OpenWeatherMap")
+st.markdown("<div style='text-align: center; color: gray;'>Weather Analytics Pro • v2.1</div>", unsafe_allow_html=True)
