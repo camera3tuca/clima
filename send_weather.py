@@ -52,17 +52,14 @@ def get_today_forecast(forecast_data):
     rain_today = 0
     
     for item in forecast_data['list']:
-        # Converte timestamp para datetime no fuso horário de Brasília
         dt = datetime.fromtimestamp(item['dt'], tz=BRT)
         
-        # Se é hoje, coleta os dados
         if dt.date() == today:
             temps_today.append({
                 'temp': item['main']['temp'],
                 'temp_max': item['main']['temp_max'],
                 'temp_min': item['main']['temp_min']
             })
-            # Soma chuva (se houver)
             if 'rain' in item and '3h' in item['rain']:
                 rain_today += item['rain']['3h']
     
@@ -77,18 +74,14 @@ def get_today_forecast(forecast_data):
 def format_weather_message(current_data, forecast_today):
     """Formata a mensagem com as informações do clima"""
     try:
-        # Hora atual em Brasília
         now = datetime.now(BRT)
         
-        # Informações básicas
         city = current_data.get('name', CITY_NAME)
         country = current_data.get('sys', {}).get('country', 'BR')
         
-        # Temperatura atual
         temp_current = current_data['main']['temp']
         feels_like = current_data['main']['feels_like']
         
-        # Usa temperaturas do forecast se disponível, senão usa do current
         if forecast_today:
             temp_max = forecast_today['temp_max']
             temp_min = forecast_today['temp_min']
@@ -98,28 +91,17 @@ def format_weather_message(current_data, forecast_today):
             temp_min = current_data['main']['temp_min']
             rain_total = 0
         
-        # Umidade e pressão
         humidity = current_data['main']['humidity']
         pressure = current_data['main']['pressure']
-        
-        # Vento
         wind_speed = current_data['wind']['speed']
         wind_deg = current_data['wind'].get('deg', 0)
-        
-        # Visibilidade
         visibility = current_data.get('visibility', 0) / 1000
-        
-        # Nuvens
         cloudiness = current_data['clouds']['all']
-        
-        # Descrição
         description = current_data['weather'][0]['description'].capitalize()
         
-        # Nascer e pôr do sol (convertido para horário de Brasília)
         sunrise = datetime.fromtimestamp(current_data['sys']['sunrise'], tz=BRT)
         sunset = datetime.fromtimestamp(current_data['sys']['sunset'], tz=BRT)
         
-        # Direção do vento
         def get_wind_direction(degrees):
             val = int((degrees / 22.5) + 0.5)
             dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
@@ -128,14 +110,12 @@ def format_weather_message(current_data, forecast_today):
         
         wind_dir = get_wind_direction(wind_deg)
         
-        # Meses em português
         meses = {
             1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril',
             5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto',
             9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'
         }
         
-        # Formata a mensagem
         message = f"🌦️ *PREVISÃO DO TEMPO - {city.upper()}, {country}*\n"
         message += f"📅 {now.day} de {meses[now.month]} de {now.year} - {now.strftime('%H:%M')}\n\n"
         
@@ -154,7 +134,6 @@ def format_weather_message(current_data, forecast_today):
         message += f"Cobertura de nuvens: {cloudiness}%\n"
         message += f"Visibilidade: {visibility:.1f} km\n\n"
         
-        # Adiciona previsão de chuva
         message += f"━━━━━━━━━━━━━━━━━━━━━━━\n"
         message += f"🌧️ *CHUVA PREVISTA HOJE*\n"
         message += f"━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -196,7 +175,25 @@ def format_weather_message(current_data, forecast_today):
         return "Erro ao processar dados do clima"
 
 def send_whatsapp_message(message):
-    """Envia mensagem via WhatsApp"""
+    """Envia mensagem via WhatsApp com debug completo"""
+    print("\n" + "="*50)
+    print("🔍 DEBUG - ENVIO WHATSAPP")
+    print("="*50)
+    
+    # Valida variáveis de ambiente
+    if not WHATSAPP_PHONE:
+        print("❌ ERRO: WHATSAPP_PHONE não configurado!")
+        return False
+    
+    if not WHATSAPP_APIKEY:
+        print("❌ ERRO: WHATSAPP_APIKEY não configurado!")
+        return False
+    
+    print(f"📱 Telefone: {WHATSAPP_PHONE}")
+    print(f"🔑 API Key: {WHATSAPP_APIKEY[:10]}...{WHATSAPP_APIKEY[-4:]}")
+    print(f"📝 Tamanho da mensagem: {len(message)} caracteres")
+    print(f"🌐 URL da API: {WHATSAPP_URL}")
+    
     try:
         params = {
             'phone': WHATSAPP_PHONE,
@@ -204,83 +201,28 @@ def send_whatsapp_message(message):
             'text': message
         }
         
-        response = requests.get(WHATSAPP_URL, params=params, timeout=10)
+        print("\n📤 Enviando requisição...")
+        response = requests.get(WHATSAPP_URL, params=params, timeout=15)
+        
+        print(f"📊 Status Code: {response.status_code}")
+        print(f"📋 Response Headers: {dict(response.headers)}")
+        print(f"📄 Response Body: {response.text[:500]}")
+        
         response.raise_for_status()
         
-        print("✅ Mensagem enviada com sucesso!")
-        print(f"Status: {response.status_code}")
+        print("\n✅ Mensagem enviada com sucesso!")
+        print("="*50 + "\n")
         return True
     
     except requests.RequestException as e:
-        print(f"❌ Erro ao enviar WhatsApp: {e}")
+        print(f"\n❌ ERRO ao enviar WhatsApp:")
+        print(f"   Tipo: {type(e).__name__}")
+        print(f"   Mensagem: {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"   Status Code: {e.response.status_code}")
+            print(f"   Response: {e.response.text[:500]}")
+        print("="*50 + "\n")
         return False
-
-def generate_temperature_map():
-    """Gera mapa de temperatura do Brasil com zoom em Goiânia"""
-    try:
-        bbox = "-73.99,-33.72,-35.21,-0.64"
-        url = f"https://maps.openweathermap.org/maps/2.0/weather?layers=temp&bbox={bbox}&appid={OPENWEATHER_API_KEY}&use_tags=true"
-        
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        
-        with open('temp_map.png', 'wb') as f:
-            f.write(response.content)
-        
-        print("✅ Mapa de temperatura gerado!")
-        return True
-    except Exception as e:
-        print(f"❌ Erro ao gerar mapa de temperatura: {e}")
-        return False
-
-def generate_precipitation_map():
-    """Gera mapa de precipitação do Brasil com zoom em Goiânia"""
-    try:
-        bbox = "-73.99,-33.72,-35.21,-0.64"
-        url = f"https://maps.openweathermap.org/maps/2.0/weather?layers=precipitation&bbox={bbox}&appid={OPENWEATHER_API_KEY}&use_tags=true"
-        
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        
-        with open('rain_map.png', 'wb') as f:
-            f.write(response.content)
-        
-        print("✅ Mapa de chuva gerado!")
-        return True
-    except Exception as e:
-        print(f"❌ Erro ao gerar mapa de precipitação: {e}")
-        return False
-
-def send_image_whatsapp(image_path, caption):
-    """Envia imagem via WhatsApp"""
-    try:
-        with open(image_path, 'rb') as f:
-            files = {'file': f}
-            params = {
-                'phone': WHATSAPP_PHONE,
-                'apikey': WHATSAPP_APIKEY,
-                'caption': caption
-            }
-            
-            response = requests.post(WHATSAPP_URL, params=params, files=files, timeout=30)
-            response.raise_for_status()
-        
-        print(f"✅ Imagem enviada: {image_path}")
-        return True
-    except Exception as e:
-        print(f"❌ Erro ao enviar imagem: {e}")
-        return False
-
-def cleanup_maps():
-    """Remove arquivos temporários"""
-    try:
-        if os.path.exists('temp_map.png'):
-            os.remove('temp_map.png')
-        if os.path.exists('rain_map.png'):
-            os.remove('rain_map.png')
-        print("✅ Limpeza de arquivos temporários concluída!")
-    except Exception as e:
-        print(f"⚠️ Aviso ao limpar arquivos: {e}")
 
 def main():
     """Função principal"""
@@ -309,30 +251,18 @@ def main():
     else:
         print("⚠️ Não foi possível obter previsão, usando apenas dados atuais\n")
     
-    # Formata e envia mensagem
+    # Formata mensagem
     message = format_weather_message(current_data, forecast_today)
     print("📝 Mensagem formatada:")
+    print("-" * 50)
     print(message)
-    print("\n")
+    print("-" * 50)
     
+    # Envia mensagem com debug completo
     if send_whatsapp_message(message):
-        print("✅ Mensagem enviada com sucesso!\n")
+        print("\n🎉 Processo concluído com SUCESSO!")
     else:
-        print("❌ Falha ao enviar mensagem\n")
-    
-    # Gera e envia mapas
-    print("🗺️ Gerando mapas do clima...\n")
-    
-    if generate_temperature_map():
-        send_image_whatsapp('temp_map.png', '🌡️ Mapa de Temperatura do Brasil - Goiânia')
-    
-    if generate_precipitation_map():
-        send_image_whatsapp('rain_map.png', '🌧️ Mapa de Precipitação do Brasil - Goiânia')
-    
-    # Limpa arquivos temporários
-    cleanup_maps()
-    
-    print("\n✅ Processo concluído com sucesso!")
+        print("\n⚠️ Processo concluído com ERROS no envio do WhatsApp")
 
 if __name__ == "__main__":
     main()
