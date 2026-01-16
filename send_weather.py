@@ -1,7 +1,6 @@
 import requests
 import os
-from datetime import datetime
-import pytz
+from datetime import datetime, timedelta, timezone
 
 # Configurações
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
@@ -13,8 +12,8 @@ LATITUDE = "-16.6869"
 LONGITUDE = "-49.2648"
 CITY_NAME = "Goiânia"
 
-# Fuso horário de Brasília
-TIMEZONE = pytz.timezone('America/Sao_Paulo')
+# Fuso horário de Brasília (GMT-3)
+BRT = timezone(timedelta(hours=-3))
 
 # URLs das APIs
 CURRENT_WEATHER_URL = f"https://api.openweathermap.org/data/2.5/weather?lat={LATITUDE}&lon={LONGITUDE}&appid={OPENWEATHER_API_KEY}&units=metric&lang=pt_br"
@@ -46,7 +45,7 @@ def get_today_forecast(forecast_data):
     if not forecast_data or 'list' not in forecast_data:
         return None
     
-    now = datetime.now(TIMEZONE)
+    now = datetime.now(BRT)
     today = now.date()
     
     temps_today = []
@@ -54,7 +53,7 @@ def get_today_forecast(forecast_data):
     
     for item in forecast_data['list']:
         # Converte timestamp para datetime no fuso horário de Brasília
-        dt = datetime.fromtimestamp(item['dt'], tz=TIMEZONE)
+        dt = datetime.fromtimestamp(item['dt'], tz=BRT)
         
         # Se é hoje, coleta os dados
         if dt.date() == today:
@@ -79,7 +78,7 @@ def format_weather_message(current_data, forecast_today):
     """Formata a mensagem com as informações do clima"""
     try:
         # Hora atual em Brasília
-        now = datetime.now(TIMEZONE)
+        now = datetime.now(BRT)
         
         # Informações básicas
         city = current_data.get('name', CITY_NAME)
@@ -117,8 +116,8 @@ def format_weather_message(current_data, forecast_today):
         description = current_data['weather'][0]['description'].capitalize()
         
         # Nascer e pôr do sol (convertido para horário de Brasília)
-        sunrise = datetime.fromtimestamp(current_data['sys']['sunrise'], tz=TIMEZONE)
-        sunset = datetime.fromtimestamp(current_data['sys']['sunset'], tz=TIMEZONE)
+        sunrise = datetime.fromtimestamp(current_data['sys']['sunrise'], tz=BRT)
+        sunset = datetime.fromtimestamp(current_data['sys']['sunset'], tz=BRT)
         
         # Direção do vento
         def get_wind_direction(degrees):
